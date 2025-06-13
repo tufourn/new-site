@@ -1,0 +1,28 @@
+[package]
+name = "site"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+anyhow = "1.0.98"
+argon2 = { version = "0.5.3", features = ["std"] }
+axum = { version = "0.8.4", features = ["macros"] }
+clap = { version = "4.5.40", features = ["derive", "env"] }
+clap_derive = "4.5.40"
+dotenvy = "0.15.7"
+icu = "2.0.0"
+redis = { version = "0.32.0", features = ["tokio-native-tls-comp"] }
+secrecy = { version = "0.10.3", features = ["serde"] }
+serde = { version = "1.0.219", features = ["derive"] }
+sqlx = { version = "0.8.6", features = ["postgres", "runtime-tokio", "runtime-tokio-native-tls", "time", "uuid"] }
+thiserror = "2.0.12"
+tokio = { version = "1.45.1", features = ["macros", "rt-multi-thread"] }
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter", "std"] }
+validator = "0.20.0"
+
+[dev-dependencies]
+claims = "0.8.0"

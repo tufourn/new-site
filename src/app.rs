@@ -1,0 +1,78 @@
+use std::sync::Arc;
+
+use axum::Router;
+use secrecy::ExposeSecret;
+use sqlx::{
+    PgPool,
+    postgres::{PgConnectOptions, PgPoolOptions, PgSslMode},
+};
+use tokio::net::TcpListener;
+
+use crate::{
+    config::Config,
+    routes::{health_check, user},
+};
+
+pub struct Application {
+    app: Router,
+    listener: TcpListener,
+}
+
+#[derive(Clone)]
+pub struct ApiContext {
+    config: Arc<Config>,
+    db: PgPool,
+}
+
+impl Application {
+    pub async fn build(config: Config) -> Self {
+        let ssl_mode = if config.database_settings.database_sslmode {
+            PgSslMode::Require
+        } else {
+            PgSslMode::Prefer
+        };
+        let db = PgPoolOptions::new()
+            .connect_with(
+                PgConnectOptions::new()
+                    .host(&config.database_settings.database_username)
+                    .port(config.database_settings.database_port)
+                    .username(&config.database_settings.database_username)
+                    .password(config.database_settings.database_password.expose_secret())
+                    .database(&config.database_settings.database_name)
+                    .ssl_mode(ssl_mode),
+            )
+            .await
+            .expect("Failed to connect to Postgres");
+
+        sqlx::migrate!()
+            .run(&db)
+            .await
+            .expect("Failed to run migrations");
+
+        let address = format!(
+            "{}:{}",
+            config.application_settings.app_host, config.application_settings.app_port
+        );
+
+        let api_context = ApiContext {
+            config: Arc::new(config),
+            db,
+        };
+
+        let app = api_router().with_state(api_context);
+
+        let listener = TcpListener::bind(address)
+            .await
+            .expect("Failed to bind port");
+
+        Application { app, listener }
+    }
+
+    pub async fn run(self) {
+        axum::serve(self.listener, self.app).await.unwrap();
+    }
+}
+
+fn api_router() -> Router<ApiContext> {
+    health_check::router().merge(user::router())
+}
