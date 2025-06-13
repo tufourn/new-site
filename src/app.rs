@@ -34,7 +34,7 @@ impl Application {
         let db = PgPoolOptions::new()
             .connect_with(
                 PgConnectOptions::new()
-                    .host(&config.database_settings.database_username)
+                    .host(&config.database_settings.database_host)
                     .port(config.database_settings.database_port)
                     .username(&config.database_settings.database_username)
                     .password(config.database_settings.database_password.expose_secret())
@@ -70,6 +70,14 @@ impl Application {
 
     pub async fn run(self) {
         axum::serve(self.listener, self.app).await.unwrap();
+    }
+
+    pub fn address(&self) -> String {
+        self.listener.local_addr().unwrap().to_string()
+    }
+
+    pub fn port(&self) -> String {
+        self.listener.local_addr().unwrap().port().to_string()
     }
 }
 

@@ -15,6 +15,7 @@ clap_derive = "4.5.40"
 dotenvy = "0.15.7"
 icu = "2.0.0"
 redis = { version = "0.32.0", features = ["tokio-native-tls-comp"] }
+reqwest = "0.12.20"
 secrecy = { version = "0.10.3", features = ["serde"] }
 serde = { version = "1.0.219", features = ["derive"] }
 sqlx = { version = "0.8.6", features = ["postgres", "runtime-tokio", "runtime-tokio-native-tls", "time", "uuid"] }
@@ -22,6 +23,7 @@ thiserror = "2.0.12"
 tokio = { version = "1.45.1", features = ["macros", "rt-multi-thread"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter", "std"] }
+uuid = { version = "1.17.0", features = ["v4"] }
 validator = "0.20.0"
 
 [dev-dependencies]
