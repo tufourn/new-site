@@ -20,8 +20,8 @@ pub struct Application {
 
 #[derive(Clone)]
 pub struct ApiContext {
-    config: Arc<Config>,
-    db: PgPool,
+    pub config: Arc<Config>,
+    pub db: PgPool,
 }
 
 impl Application {

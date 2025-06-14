@@ -32,13 +32,11 @@ pub async fn spawn_app() -> TestApp {
 
     let _ = tokio::spawn(async move { app.run().await });
 
-    let test_app = TestApp {
+    TestApp {
         address,
         db,
         client,
-    };
-
-    test_app
+    }
 }
 
 pub async fn configure_database(db_settings: &DatabaseSettings) -> PgPool {
@@ -51,7 +49,7 @@ pub async fn configure_database(db_settings: &DatabaseSettings) -> PgPool {
         .host(&db_settings.database_host)
         .port(db_settings.database_port)
         .username(&db_settings.database_username)
-        .password(&db_settings.database_password.expose_secret())
+        .password(db_settings.database_password.expose_secret())
         .ssl_mode(ssl_mode);
 
     let mut connection = PgConnection::connect_with(&connect_options)
