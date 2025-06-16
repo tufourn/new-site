@@ -18,9 +18,8 @@ pub struct Application {
     listener: TcpListener,
 }
 
-#[derive(Clone)]
 pub struct ApiContext {
-    pub config: Arc<Config>,
+    pub config: Config,
     pub db: PgPool,
 }
 
@@ -54,12 +53,9 @@ impl Application {
             config.application_settings.app_host, config.application_settings.app_port
         );
 
-        let api_context = ApiContext {
-            config: Arc::new(config),
-            db,
-        };
+        let api_context = ApiContext { config, db };
 
-        let app = api_router().with_state(api_context);
+        let app = api_router().with_state(Arc::new(api_context));
 
         let listener = TcpListener::bind(address)
             .await
@@ -81,6 +77,6 @@ impl Application {
     }
 }
 
-fn api_router() -> Router<ApiContext> {
+fn api_router() -> Router<Arc<ApiContext>> {
     health_check::router().merge(user::router())
 }

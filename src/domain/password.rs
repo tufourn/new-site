@@ -18,7 +18,7 @@ pub enum InvalidPasswordError {
 pub struct Password(SecretString);
 
 impl Password {
-    pub fn parse(s: String) -> Result<Self, InvalidPasswordError> {
+    pub fn parse(s: &str) -> Result<Self, InvalidPasswordError> {
         if s.is_empty() {
             return Err(InvalidPasswordError::Empty);
         }
@@ -49,31 +49,31 @@ mod tests {
 
     #[test]
     fn empty_password_is_invalid() {
-        let passwd = "".to_string();
-        assert_err_eq!(Password::parse(passwd), InvalidPasswordError::Empty);
+        let passwd = "";
+        assert_err_eq!(Password::parse(&passwd), InvalidPasswordError::Empty);
     }
 
     #[test]
     fn a_11_grapheme_long_password_is_invalid() {
         let passwd = "ё".repeat(11);
-        assert_err_eq!(Password::parse(passwd), InvalidPasswordError::TooShort);
+        assert_err_eq!(Password::parse(&passwd), InvalidPasswordError::TooShort);
     }
 
     #[test]
     fn a_12_grapheme_long_password_is_valid() {
         let passwd = "ё".repeat(12);
-        assert_ok!(Password::parse(passwd));
+        assert_ok!(Password::parse(&passwd));
     }
 
     #[test]
     fn a_257_grapheme_long_password_is_invalid() {
         let passwd = "ё".repeat(257);
-        assert_err_eq!(Password::parse(passwd), InvalidPasswordError::TooLong);
+        assert_err_eq!(Password::parse(&passwd), InvalidPasswordError::TooLong);
     }
 
     #[test]
     fn a_256_grapheme_long_password_is_valid() {
         let passwd = "ё".repeat(256);
-        assert_ok!(Password::parse(passwd));
+        assert_ok!(Password::parse(&passwd));
     }
 }

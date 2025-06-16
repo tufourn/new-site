@@ -1,5 +1,8 @@
+use std::sync::Arc;
+
+use anyhow::Context;
 use argon2::{
-    Argon2,
+    Argon2, PasswordHash, PasswordVerifier,
     password_hash::{PasswordHasher, SaltString, rand_core::OsRng},
 };
 use axum::{
@@ -9,8 +12,8 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use secrecy::ExposeSecret;
-use sqlx::{Executor, Postgres, Transaction};
+use secrecy::{ExposeSecret, SecretString};
+use sqlx::{Executor, PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::{
@@ -18,7 +21,7 @@ use crate::{
     domain::{email_address::EmailAddress, password::Password, username::Username},
 };
 
-pub fn router() -> Router<ApiContext> {
+pub fn router() -> Router<Arc<ApiContext>> {
     Router::new()
         .route("/api/user/register", post(register_user))
         .route("/api/user/login", post(login_user))
@@ -38,6 +41,13 @@ struct RegisterCredentials {
     password: Password,
 }
 
+#[derive(serde::Serialize)]
+struct UserInfo {
+    user_id: Uuid,
+    email: String,
+    username: String,
+}
+
 #[derive(thiserror::Error, Debug)]
 enum RegisterError {
     #[error(transparent)]
@@ -50,19 +60,17 @@ enum RegisterError {
     UsernameExists,
     #[error("Email already exists")]
     EmailExists,
-    #[error("Database error: {0}")]
-    DbError(#[from] sqlx::Error),
-    #[error("Password hashing error")]
-    PasswordHashingError(#[from] argon2::password_hash::Error),
+    #[error(transparent)]
+    UnexpectedError(#[from] anyhow::Error),
 }
 
 impl TryFrom<RegisterPayload> for RegisterCredentials {
     type Error = RegisterError;
 
     fn try_from(payload: RegisterPayload) -> Result<Self, Self::Error> {
-        let email = EmailAddress::parse(payload.email)?;
-        let username = Username::parse(payload.username)?;
-        let password = Password::parse(payload.password)?;
+        let email = EmailAddress::parse(&payload.email)?;
+        let username = Username::parse(&payload.username)?;
+        let password = Password::parse(&payload.password)?;
 
         Ok(Self {
             email,
@@ -84,13 +92,9 @@ impl IntoResponse for RegisterError {
             RegisterError::EmailExists => {
                 (StatusCode::CONFLICT, "Email already registered".to_string())
             }
-            RegisterError::DbError(_) => (
+            RegisterError::UnexpectedError(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "A database error occurred".to_string(),
-            ),
-            RegisterError::PasswordHashingError(_) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to securely process password".to_string(),
+                "An internal server error occurred".to_string(),
             ),
         };
         (status, Json(serde_json::json!({ "error": error_message }))).into_response()
@@ -98,24 +102,31 @@ impl IntoResponse for RegisterError {
 }
 
 async fn register_user(
-    State(api_context): State<ApiContext>,
+    State(api_context): State<Arc<ApiContext>>,
     Json(payload): Json<RegisterPayload>,
-) -> Result<StatusCode, RegisterError> {
+) -> Result<(StatusCode, Json<UserInfo>), RegisterError> {
     let register_credentials: RegisterCredentials = payload.try_into()?;
 
-    let mut transaction = api_context.db.begin().await?;
+    let mut transaction = api_context
+        .db
+        .begin()
+        .await
+        .context("Failed to begin SQL transaction to register a new user")?;
 
-    store_register_credentials(&mut transaction, register_credentials).await?;
+    let user_info = store_register_credentials(&mut transaction, register_credentials).await?;
 
-    transaction.commit().await?;
+    transaction
+        .commit()
+        .await
+        .context("Failed to commit SQL transaction to register a new user")?;
 
-    Ok(StatusCode::CREATED)
+    Ok((StatusCode::CREATED, Json(user_info)))
 }
 
 async fn store_register_credentials(
     transaction: &mut Transaction<'_, Postgres>,
     register_credentials: RegisterCredentials,
-) -> Result<(), RegisterError> {
+) -> Result<UserInfo, RegisterError> {
     let username = register_credentials.username.as_ref();
     let username_exists = sqlx::query_scalar!(
         r#"
@@ -124,7 +135,8 @@ async fn store_register_credentials(
         username
     )
     .fetch_one(&mut **transaction)
-    .await?;
+    .await
+    .context("Failed to perform query to retrieve username")?;
     if username_exists == Some(true) {
         return Err(RegisterError::UsernameExists);
     }
@@ -137,7 +149,8 @@ async fn store_register_credentials(
         email
     )
     .fetch_one(&mut **transaction)
-    .await?;
+    .await
+    .context("Failed to perform query to retrieve email")?;
     if email_exists == Some(true) {
         return Err(RegisterError::EmailExists);
     }
@@ -153,14 +166,15 @@ async fn store_register_credentials(
             email
         ))
         .await
-        .map_err(RegisterError::DbError)?;
+        .context("Failed to insert user info into user_info table")?;
 
     let salt = SaltString::generate(&mut OsRng);
     let password_hash = Argon2::default()
         .hash_password(
             register_credentials.password.expose_secret().as_bytes(),
             &salt,
-        )?
+        )
+        .context("Failed to hash password")?
         .to_string();
     transaction
         .execute(sqlx::query!(
@@ -171,13 +185,140 @@ async fn store_register_credentials(
             password_hash,
         ))
         .await
-        .map_err(RegisterError::DbError)?;
+        .context("Failed to insert user password into user_password table")?;
+
+    Ok(UserInfo {
+        user_id,
+        email: email.to_owned(),
+        username: username.to_owned(),
+    })
+}
+
+#[derive(serde::Deserialize)]
+struct LoginPayload {
+    username: String,
+    password: String,
+}
+
+struct LoginCredentials {
+    username: Username,
+    password: Password,
+}
+
+#[derive(thiserror::Error, Debug)]
+enum AuthError {
+    #[error("Invalid credentials")]
+    InvalidCredentials(#[source] anyhow::Error),
+    #[error(transparent)]
+    UnexpectedError(#[from] anyhow::Error),
+}
+
+impl TryFrom<LoginPayload> for LoginCredentials {
+    type Error = AuthError;
+
+    fn try_from(payload: LoginPayload) -> Result<Self, Self::Error> {
+        let username = Username::parse(&payload.username)
+            .context("Invalid username")
+            .map_err(AuthError::InvalidCredentials)?;
+        let password = Password::parse(&payload.password)
+            .context("Invalid password")
+            .map_err(AuthError::InvalidCredentials)?;
+
+        Ok(Self { username, password })
+    }
+}
+
+impl IntoResponse for AuthError {
+    fn into_response(self) -> Response {
+        let (status, error_message) = match self {
+            AuthError::InvalidCredentials(_) => (
+                StatusCode::UNAUTHORIZED,
+                "Invalid username or password".to_string(),
+            ),
+            AuthError::UnexpectedError(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "An internal server error occurred".to_string(),
+            ),
+        };
+
+        (status, Json(serde_json::json!({ "error": error_message }))).into_response()
+    }
+}
+
+async fn login_user(
+    State(api_context): State<Arc<ApiContext>>,
+    Json(payload): Json<LoginPayload>,
+) -> Result<(), AuthError> {
+    let login_credentials: LoginCredentials = payload.try_into()?;
+    validate_credentials(login_credentials, &api_context.db).await?;
 
     Ok(())
 }
 
-async fn login_user() {
-    todo!();
+async fn validate_credentials(
+    credentials: LoginCredentials,
+    pool: &PgPool,
+) -> Result<uuid::Uuid, AuthError> {
+    let mut user_id = None;
+    let mut expected_password_hash = SecretString::from(
+        "$argon2id$v=19$m=15000,t=2,p=1$\
+        gZiV/M1gPc22ElAH/Jh1Hw$\
+        CWOrkoo7oJBQ/iyh7uJ0LO2aLEfrHwTWllSAxT0zRno",
+    );
+
+    if let Some((stored_user_id, stored_password_hash)) =
+        get_stored_credentials(credentials.username, pool).await?
+    {
+        user_id = Some(stored_user_id);
+        expected_password_hash = stored_password_hash;
+    }
+
+    tokio::task::spawn_blocking(move || {
+        verify_password_hash(expected_password_hash, credentials.password)
+    })
+    .await
+    .context("Failed to spawn blocking task")??;
+
+    user_id
+        .ok_or_else(|| anyhow::anyhow!("Unknown username"))
+        .map_err(AuthError::InvalidCredentials)
+}
+
+async fn get_stored_credentials(
+    username: Username,
+    pool: &PgPool,
+) -> Result<Option<(uuid::Uuid, SecretString)>, AuthError> {
+    let row = sqlx::query!(
+        r#"
+        SELECT ui.user_id, up.password_hash
+        FROM user_info AS ui JOIN user_password AS up
+            ON ui.user_id = up.user_id
+        WHERE ui.username = $1
+        "#,
+        username.as_ref()
+    )
+    .fetch_optional(pool)
+    .await
+    .context("Failed to perform a query to retrieve stored credentials")?
+    .map(|row| (row.user_id, SecretString::from(row.password_hash)));
+
+    Ok(row)
+}
+
+fn verify_password_hash(
+    expected_password_hash: SecretString,
+    password_candidate: Password,
+) -> Result<(), AuthError> {
+    let expected_password_hash = PasswordHash::new(expected_password_hash.expose_secret())
+        .context("Failed to parse hash in PHC string format")?;
+
+    Argon2::default()
+        .verify_password(
+            password_candidate.expose_secret().as_bytes(),
+            &expected_password_hash,
+        )
+        .context("Wrong password")
+        .map_err(AuthError::InvalidCredentials)
 }
 
 async fn get_current_user() {

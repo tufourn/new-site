@@ -16,8 +16,8 @@ pub enum InvalidUsernameError {
 pub struct Username(String);
 
 impl Username {
-    pub fn parse(s: String) -> Result<Username, InvalidUsernameError> {
-        let username = s.trim();
+    pub fn parse(s: &str) -> Result<Username, InvalidUsernameError> {
+        let username = s.trim().to_lowercase();
 
         if username.is_empty() {
             return Err(InvalidUsernameError::Empty);
@@ -25,7 +25,7 @@ impl Username {
 
         // segment_str returns breakpoints, subtract 1 to get grapheme cluster count
         let len = GraphemeClusterSegmenter::new()
-            .segment_str(username)
+            .segment_str(&username)
             .count()
             - 1;
         if len > MAX_USER_NAME_LENGTH {
@@ -39,7 +39,7 @@ impl Username {
             return Err(InvalidUsernameError::ContainsForbiddenCharacter);
         }
 
-        Ok(Self(username.to_string()))
+        Ok(Self(username))
     }
 }
 
@@ -63,28 +63,34 @@ mod tests {
 
     #[test]
     pub fn empty_username_is_invalid() {
-        let username = "".to_string();
+        let username = "";
         assert_err_eq!(Username::parse(username), InvalidUsernameError::Empty);
 
-        let username = " ".to_string();
+        let username = " ";
         assert_err_eq!(Username::parse(username), InvalidUsernameError::Empty);
+    }
+
+    #[test]
+    pub fn username_is_parsed_as_lowercase() {
+        let username = "tEStUSer";
+        assert_eq!(Username::parse(username).unwrap().as_ref(), "testuser");
     }
 
     #[test]
     pub fn a_65_grapheme_long_username_is_invalid() {
         let username = "a".repeat(65);
-        assert_err_eq!(Username::parse(username), InvalidUsernameError::TooLong);
+        assert_err_eq!(Username::parse(&username), InvalidUsernameError::TooLong);
     }
 
     #[test]
     pub fn a_64_grapheme_long_username_is_valid() {
         let username = "a".repeat(64);
-        assert_ok!(Username::parse(username));
+        assert_ok!(Username::parse(&username));
     }
 
     #[test]
     pub fn username_containing_non_ascii_characters_is_invalid() {
-        let username = "ё".to_string();
+        let username = "ё";
         assert_err_eq!(
             Username::parse(username),
             InvalidUsernameError::ContainsForbiddenCharacter
@@ -93,19 +99,19 @@ mod tests {
 
     #[test]
     pub fn username_containing_dash_underscore_dot_is_valid() {
-        let username = ".".to_string();
+        let username = ".";
         assert_ok!(Username::parse(username));
 
-        let username = "_".to_string();
+        let username = "_";
         assert_ok!(Username::parse(username));
 
-        let username = "-".to_string();
+        let username = "-";
         assert_ok!(Username::parse(username));
     }
 
     #[test]
     pub fn username_containing_forbidden_characters_is_invalid() {
-        let username = "a a".to_string();
+        let username = "a a";
         assert_err_eq!(
             Username::parse(username),
             InvalidUsernameError::ContainsForbiddenCharacter
@@ -113,7 +119,7 @@ mod tests {
 
         let username = "!".to_string();
         assert_err_eq!(
-            Username::parse(username),
+            Username::parse(&username),
             InvalidUsernameError::ContainsForbiddenCharacter
         );
     }

@@ -8,7 +8,8 @@ pub struct InvalidEmailError;
 pub struct EmailAddress(String);
 
 impl EmailAddress {
-    pub fn parse(s: String) -> Result<EmailAddress, InvalidEmailError> {
+    pub fn parse(s: &str) -> Result<EmailAddress, InvalidEmailError> {
+        let s = s.to_lowercase();
         if (s).validate_email() {
             Ok(Self(s))
         } else {
