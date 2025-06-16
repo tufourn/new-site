@@ -135,7 +135,7 @@ async fn login_with_valid_credentials_returns_200() {
 }
 
 #[tokio::test]
-async fn login_with_invalid_credentials_returns_401() {
+async fn login_with_incorrect_credentials_returns_401() {
     let app = spawn_app().await;
 
     let register_body = serde_json::json!({
@@ -149,6 +149,18 @@ async fn login_with_invalid_credentials_returns_401() {
     let login_body = serde_json::json!({
         "username": "testuser",
         "password": "hunter2",
+    });
+    let response = login_user(&app, login_body).await;
+    assert_eq!(401, response.status().as_u16());
+}
+
+#[tokio::test]
+async fn login_with_unregistered_credentials_returns_401() {
+    let app = spawn_app().await;
+
+    let login_body = serde_json::json!({
+        "username": "testuser",
+        "password": "correct horse battery staple",
     });
     let response = login_user(&app, login_body).await;
     assert_eq!(401, response.status().as_u16());

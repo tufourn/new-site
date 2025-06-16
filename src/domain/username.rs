@@ -12,7 +12,7 @@ pub enum InvalidUsernameError {
     ContainsForbiddenCharacter,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Username(String);
 
 impl Username {

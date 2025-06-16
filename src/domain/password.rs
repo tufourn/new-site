@@ -14,7 +14,7 @@ pub enum InvalidPasswordError {
     TooLong,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Password(SecretString);
 
 impl Password {
@@ -24,7 +24,7 @@ impl Password {
         }
 
         // segment_str returns the breakpoints, subtract 1 to grapheme cluster count
-        let len = GraphemeClusterSegmenter::new().segment_str(&s).count() - 1;
+        let len = GraphemeClusterSegmenter::new().segment_str(s).count() - 1;
         if len < MIN_PASSWORD_LENGTH {
             return Err(InvalidPasswordError::TooShort);
         }
@@ -50,7 +50,7 @@ mod tests {
     #[test]
     fn empty_password_is_invalid() {
         let passwd = "";
-        assert_err_eq!(Password::parse(&passwd), InvalidPasswordError::Empty);
+        assert_err_eq!(Password::parse(passwd), InvalidPasswordError::Empty);
     }
 
     #[test]

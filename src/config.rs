@@ -1,3 +1,4 @@
+use clap_derive::ValueEnum;
 use secrecy::SecretString;
 
 #[derive(clap::Parser, Debug)]
@@ -12,6 +13,9 @@ pub struct Config {
 
 #[derive(clap::Parser, Debug)]
 pub struct ApplicationSettings {
+    /// Application environment
+    #[clap(long, env)]
+    pub app_env: AppEnv,
     /// Application host
     #[clap(long, env)]
     pub app_host: String,
@@ -25,22 +29,18 @@ pub struct ApplicationSettings {
 
 #[derive(clap::Parser, Debug)]
 pub struct DatabaseSettings {
-    /// Postgres database host
     #[clap(long, env)]
-    pub database_host: String,
-    /// Postgres database port
+    pub database_url: SecretString,
     #[clap(long, env)]
-    pub database_port: u16,
-    /// Postgres database name
-    #[clap(long, env)]
-    pub database_name: String,
-    /// Postgres database username
-    #[clap(long, env)]
-    pub database_username: String,
-    /// Postgres database password
-    #[clap(long, env)]
-    pub database_password: SecretString,
-    /// Postgres ssl mode
-    #[clap(long, env, default_value_t = false)]
-    pub database_sslmode: bool,
+    pub redis_url: SecretString,
+}
+
+#[derive(Debug, Copy, Clone, ValueEnum, PartialEq)]
+pub enum AppEnv {
+    #[clap(name = "development")]
+    Development,
+    #[clap(name = "staging")]
+    Staging,
+    #[clap(name = "production")]
+    Production,
 }
