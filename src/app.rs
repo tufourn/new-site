@@ -2,6 +2,7 @@ use std::{str::FromStr, sync::Arc};
 
 use axum::Router;
 use axum_login::AuthManagerLayerBuilder;
+use axum_messages::MessagesManagerLayer;
 use fred::{interfaces::ClientLike, prelude::ReconnectPolicy};
 use secrecy::ExposeSecret;
 use sqlx::{
@@ -9,12 +10,14 @@ use sqlx::{
     postgres::{PgConnectOptions, PgPoolOptions, PgSslMode},
 };
 use tokio::net::TcpListener;
+use tower_http::services::ServeDir;
 use tower_sessions::SessionManagerLayer;
 use tower_sessions_redis_store::RedisStore;
 
 use crate::{
+    auth,
     config::{self, AppEnv, Config},
-    routes::{health_check, user},
+    routes::health_check,
 };
 
 pub struct Application {
@@ -26,6 +29,8 @@ pub struct ApiContext {
     pub config: Config,
     pub db: PgPool,
 }
+
+pub type AppRouter = Router<Arc<ApiContext>>;
 
 impl Application {
     pub async fn build(config: Config) -> Self {
@@ -91,11 +96,15 @@ impl Application {
         let backend = crate::auth::Backend::new(db.clone());
         let auth_layer = AuthManagerLayerBuilder::new(backend, session_layer).build();
 
+        let serve_dir = ServeDir::new("assets");
+
         let api_context = ApiContext { config, db };
 
         let app = api_router()
             .with_state(Arc::new(api_context))
-            .layer(auth_layer);
+            .layer(MessagesManagerLayer)
+            .layer(auth_layer)
+            .nest_service("/assets", serve_dir);
 
         let listener = TcpListener::bind(address)
             .await
@@ -117,6 +126,6 @@ impl Application {
     }
 }
 
-fn api_router() -> Router<Arc<ApiContext>> {
-    health_check::router().merge(user::router())
+fn api_router() -> AppRouter {
+    health_check::router().merge(auth::router())
 }

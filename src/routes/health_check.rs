@@ -1,10 +1,8 @@
-use std::sync::Arc;
-
 use axum::{Router, routing::get};
 
-use crate::app::ApiContext;
+use crate::app::AppRouter;
 
-pub fn router() -> Router<Arc<ApiContext>> {
+pub fn router() -> AppRouter {
     Router::new().route("/health_check", get(health_check))
 }
 

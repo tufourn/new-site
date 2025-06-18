@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block title %}tufourn{% endblock %}</title>
+    <script src="/assets/js/htmx.min.js"></script>
+    <script src="/assets/js/response-targets.min.js"></script>
+  </head>
+  <body hx-boost="true" hx-ext="response-targets">
+    {% block content %}{% endblock %}
+  </body>
+</html>

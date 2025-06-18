@@ -1,12 +1,32 @@
+use anyhow::Context;
 use async_trait::async_trait;
-use axum_login::{AuthUser, AuthnBackend, UserId};
+use axum::{
+    Router,
+    routing::{get, post},
+};
+use axum_login::{AuthUser, AuthnBackend, UserId, login_required};
 use password_auth::verify_password;
 use secrecy::ExposeSecret;
 use sqlx::{PgPool, prelude::FromRow};
-use tokio::task;
 use uuid::Uuid;
 
-use crate::domain::{password::Password, username::Username};
+use crate::{
+    app::AppRouter,
+    domain::{password::Password, username::Username},
+};
+
+mod login;
+mod register;
+
+pub fn router() -> AppRouter {
+    Router::new()
+        .route("/protected", get(login::get_protected))
+        .route_layer(login_required!(Backend, login_url = "/login"))
+        .route("/register", get(register::get))
+        .route("/login", get(login::get))
+        .route("/api/register", post(register::register_user))
+        .route("/api/login", post(login::post))
+}
 
 #[derive(Clone, Debug, FromRow)]
 pub struct User {
@@ -44,15 +64,15 @@ impl Backend {
 }
 
 #[derive(serde::Deserialize)]
-pub struct LoginPayload {
+pub struct LoginFormData {
     username: String,
     password: String,
 }
 
-impl TryFrom<LoginPayload> for LoginCredentials {
+impl TryFrom<LoginFormData> for LoginCredentials {
     type Error = AuthError;
 
-    fn try_from(payload: LoginPayload) -> Result<Self, Self::Error> {
+    fn try_from(payload: LoginFormData) -> Result<Self, Self::Error> {
         let username =
             Username::parse(&payload.username).map_err(|_| AuthError::InvalidCredentials)?;
         let password =
@@ -65,11 +85,7 @@ impl TryFrom<LoginPayload> for LoginCredentials {
 #[derive(Debug, thiserror::Error)]
 pub enum AuthError {
     #[error(transparent)]
-    Sqlx(#[from] sqlx::Error),
-
-    #[error(transparent)]
-    TaskJoin(#[from] task::JoinError),
-
+    UnexpectedError(#[from] anyhow::Error),
     #[error("Invalid credentials")]
     InvalidCredentials,
 }
@@ -95,7 +111,8 @@ impl AuthnBackend for Backend {
             credentials.username.as_ref(),
         )
         .fetch_optional(&self.db)
-        .await?;
+        .await
+        .context("Failed to fetch stored user credentials")?;
 
         tokio::task::spawn_blocking(move || {
             Ok(user.filter(|user| {
@@ -106,7 +123,8 @@ impl AuthnBackend for Backend {
                 .is_ok()
             }))
         })
-        .await?
+        .await
+        .context("Failed to spawn blocking task")?
     }
 
     async fn get_user(&self, user_id: &UserId<Self>) -> Result<Option<Self::User>, Self::Error> {
@@ -116,12 +134,13 @@ impl AuthnBackend for Backend {
             SELECT ui.user_id, ui.username, up.password_hash
             FROM user_info AS ui JOIN user_password AS up
                 ON ui.user_id = up.user_id
-            WHERE ui.username = $1
+            WHERE ui.user_id = $1
             "#,
-            user_id.to_string()
+            user_id
         )
         .fetch_optional(&self.db)
-        .await?;
+        .await
+        .context("Failed to get user")?;
 
         Ok(user)
     }
