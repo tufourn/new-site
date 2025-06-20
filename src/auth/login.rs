@@ -4,29 +4,17 @@ use axum::http::StatusCode;
 use axum::response::AppendHeaders;
 use axum::{Form, response::IntoResponse};
 
-use crate::auth::{AuthError, AuthSession, LoginCredentials, LoginFormData};
+use crate::auth::{AuthError, AuthSession, LoginCredentials};
+use crate::domain::password::Password;
+use crate::domain::username::Username;
 
 #[derive(Template, WebTemplate)]
 #[template(path = "auth/login.html")]
 pub struct LoginTemplate {}
 
-pub async fn get() -> LoginTemplate {
+pub async fn login_page() -> LoginTemplate {
     LoginTemplate {}
 }
-
-// protected page for testing, remove later
-#[derive(Template, WebTemplate)]
-#[template(path = "auth/protected.html")]
-pub struct ProtectedTemplate {}
-
-pub async fn get_protected(auth_session: AuthSession) -> impl IntoResponse {
-    let protected = ProtectedTemplate {};
-    match auth_session.user {
-        Some(_user) => protected.into_response(),
-        None => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
-    }
-}
-//
 
 impl IntoResponse for AuthError {
     fn into_response(self) -> axum::response::Response {
@@ -42,7 +30,26 @@ impl IntoResponse for AuthError {
     }
 }
 
-pub async fn post(
+#[derive(serde::Deserialize)]
+pub struct LoginFormData {
+    username: String,
+    password: String,
+}
+
+impl TryInto<LoginCredentials> for LoginFormData {
+    type Error = AuthError;
+
+    fn try_into(self) -> Result<LoginCredentials, Self::Error> {
+        let username =
+            Username::parse(&self.username).map_err(|_| AuthError::InvalidCredentials)?;
+        let password =
+            Password::parse(&self.password).map_err(|_| AuthError::InvalidCredentials)?;
+
+        Ok(LoginCredentials { username, password })
+    }
+}
+
+pub async fn login_user(
     mut auth_session: AuthSession,
     Form(payload): Form<LoginFormData>,
 ) -> Result<impl IntoResponse, AuthError> {
@@ -64,8 +71,5 @@ pub async fn post(
         )));
     }
 
-    Ok((
-        StatusCode::OK,
-        AppendHeaders([("HX-Redirect", "/protected")]),
-    ))
+    Ok((StatusCode::OK, AppendHeaders([("HX-Redirect", "/")])))
 }

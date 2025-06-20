@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block title %}Todos{% endblock %}
+
+{% block content %}
+
+<div>
+  <form hx-post="/todo" hx-target="body">
+    <div>
+      <label for="todo_content">New todo</label>
+      <input type="text" id="todo_content" name="todo_content" required>
+      <button type="submit">Submit</button>
+    </div>
+  </form>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>Todo</th>
+      <th>Completed</th>
+      <th>Delete</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for todo in todos %}
+    <tr>
+      <td>{{ todo.todo_content }}</td>
+      <td>
+        <input
+          type="checkbox"
+          name="is_completed"
+          hx-put="/todo/{{ todo.todo_id }}"
+          {% if todo.is_completed %}
+          hx-vals='{"is_completed": "false"}'
+          checked
+          {% else %}
+          hx-vals='{"is_completed": "true"}'
+          {% endif %}
+          hx-target="body"
+        >
+      </td>
+      <td><button hx-delete="/todo/{{ todo.todo_id }}" hx-target="body">Delete</button></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+{% endblock %}
+

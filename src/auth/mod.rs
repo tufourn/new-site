@@ -4,9 +4,9 @@ use axum::{
     Router,
     routing::{get, post},
 };
-use axum_login::{AuthUser, AuthnBackend, UserId, login_required};
+use axum_login::{AuthUser, AuthnBackend, UserId};
 use password_auth::verify_password;
-use secrecy::ExposeSecret;
+use secrecy::{ExposeSecret, SecretString};
 use sqlx::{PgPool, prelude::FromRow};
 use uuid::Uuid;
 
@@ -16,23 +16,29 @@ use crate::{
 };
 
 mod login;
+mod logout;
 mod register;
 
 pub fn router() -> AppRouter {
     Router::new()
-        .route("/protected", get(login::get_protected))
-        .route_layer(login_required!(Backend, login_url = "/login"))
-        .route("/register", get(register::get))
-        .route("/login", get(login::get))
+        .route("/register", get(register::register_page))
+        .route("/login", get(login::login_page))
+        .route("/logout", get(logout::logout))
         .route("/api/register", post(register::register_user))
-        .route("/api/login", post(login::post))
+        .route("/api/login", post(login::login_user))
 }
 
 #[derive(Clone, Debug, FromRow)]
 pub struct User {
     user_id: Uuid,
     pub username: String,
-    password_hash: String,
+    password_hash: SecretString,
+}
+
+impl User {
+    pub fn user_id(&self) -> Uuid {
+        self.user_id
+    }
 }
 
 impl AuthUser for User {
@@ -43,7 +49,7 @@ impl AuthUser for User {
     }
 
     fn session_auth_hash(&self) -> &[u8] {
-        self.password_hash.as_bytes()
+        self.password_hash.expose_secret().as_bytes()
     }
 }
 
@@ -60,25 +66,6 @@ pub struct Backend {
 impl Backend {
     pub fn new(db: PgPool) -> Self {
         Self { db }
-    }
-}
-
-#[derive(serde::Deserialize)]
-pub struct LoginFormData {
-    username: String,
-    password: String,
-}
-
-impl TryFrom<LoginFormData> for LoginCredentials {
-    type Error = AuthError;
-
-    fn try_from(payload: LoginFormData) -> Result<Self, Self::Error> {
-        let username =
-            Username::parse(&payload.username).map_err(|_| AuthError::InvalidCredentials)?;
-        let password =
-            Password::parse(&payload.password).map_err(|_| AuthError::InvalidCredentials)?;
-
-        Ok(Self { username, password })
     }
 }
 
@@ -118,7 +105,7 @@ impl AuthnBackend for Backend {
             Ok(user.filter(|user| {
                 verify_password(
                     credentials.password.expose_secret().as_bytes(),
-                    &user.password_hash,
+                    user.password_hash.expose_secret(),
                 )
                 .is_ok()
             }))

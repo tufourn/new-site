@@ -1,6 +1,6 @@
 use std::{str::FromStr, sync::Arc};
 
-use axum::Router;
+use axum::{Router, routing::get};
 use axum_login::AuthManagerLayerBuilder;
 use axum_messages::MessagesManagerLayer;
 use fred::{interfaces::ClientLike, prelude::ReconnectPolicy};
@@ -17,7 +17,7 @@ use tower_sessions_redis_store::RedisStore;
 use crate::{
     auth,
     config::{self, AppEnv, Config},
-    routes::health_check,
+    routes::{health_check, root::get_homepage, todo},
 };
 
 pub struct Application {
@@ -127,5 +127,9 @@ impl Application {
 }
 
 fn api_router() -> AppRouter {
-    health_check::router().merge(auth::router())
+    Router::new()
+        .route("/", get(get_homepage))
+        .merge(health_check::router())
+        .merge(todo::router())
+        .merge(auth::router())
 }

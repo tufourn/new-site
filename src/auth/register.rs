@@ -27,7 +27,7 @@ use crate::{
 #[template(path = "auth/register.html")]
 pub struct RegisterTemplate {}
 
-pub async fn get() -> RegisterTemplate {
+pub async fn register_page() -> RegisterTemplate {
     RegisterTemplate {}
 }
 
